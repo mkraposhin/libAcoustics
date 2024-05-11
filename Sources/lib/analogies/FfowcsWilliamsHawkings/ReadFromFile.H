@@ -1,11 +1,12 @@
-#ifndef Farassat1AFormulation_H
-#define Farassat1AFormulation_H
+#ifndef ReadFromFile_H
+#define ReadFromFile_H
 
 #include "fwhFormulation.H"
 #include "vector.H"
 #include "label.H"
 #include "List.H"
 #include "AcousticAnalogy.H"
+#include "IFstream.H"
 
 namespace Foam
 {
@@ -13,40 +14,38 @@ namespace Foam
 namespace functionObjects
 {
 
-class Farassat1AFormulation : public fwhFormulation
+class ReadFromFile : public fwhFormulation
 {
 
 private:
 
     //-
-    List<List<tdPrimitive<scalar> > > Un_;
+    autoPtr<IFstream> qdsInput_;
 
     //-
-    List<List<tdPrimitive<vector> > > L_;
+    autoPtr<IFstream> fdsInput_;
 
     //-
-    List<List<tdPrimitive<vector> > > M_;
-
+    const label n_blocks_to_read_;
+    
 private:
-
+    
     //- Disable default constructor
-    Farassat1AFormulation();
-
+    ReadFromFile();
+    
     //- Disable copy constructor
-    Farassat1AFormulation(const Farassat1AFormulation&);
+    ReadFromFile(const ReadFromFile&);
 
 public:
-
-    //- Constructs a new Farassat1AFormulation object using
-    //the reference to FfowcsWilliamsHawkings object
-    Farassat1AFormulation(const FfowcsWilliamsHawkings& fwh);
-
-    //- Destructor for an Farassat1AFormulation object
-    ~Farassat1AFormulation();
+    
+    //-
+    ReadFromFile(const FfowcsWilliamsHawkings& fwh);
+    
+    //-
+    ~ReadFromFile();
     
     //- Calculates acoustic data used to compute acoustic pressure
-    // for the specified observer by employing Farassat 1A formulation
-    // of FWH Analogy
+    // for the specified observer by employing GT formulation of FWH Analogy
     void calculateAcousticData
     (
         const vectorField& Sf,
@@ -57,10 +56,10 @@ public:
         label iSurf,
         scalar ct
     ) override;
-
+    
     //-
     void update();
-
+    
     //-
     void initialize();
 };
@@ -70,3 +69,9 @@ public:
 } // namespace Foam
 
 #endif
+
+// ************************************************************************* //
+
+//
+//END OF FILE
+//

@@ -6,6 +6,7 @@
 #include "DynamicList.H"
 #include "runTimeSelectionTables.H"
 #include "AcousticAnalogy.H"
+#include "OFstream.H"
 
 namespace Foam
 {
@@ -15,10 +16,18 @@ namespace functionObjects
 
 class FfowcsWilliamsHawkings;
 
+#define forAllSurfaces(arr, iObs, iSurf) \
+forAll(arr, iObs)                        \
+forAll(arr[iObs], iSurf)
+
+#define forAllFaces(arr, iObs, iSurf, iFace) \
+forAllSurfaces(arr, iObs, iSurf)             \
+forAll(arr[iObs][iSurf], iFace)
+
 class fwhFormulation
 {
 
-private:
+protected:
 
     //types for internal usage
     typedef Pair<DynamicList<scalar> > pointTimeData;
@@ -27,6 +36,12 @@ private:
     
     template<typename T>
     using tdPrimitive = AcousticAnalogy::tdPrimitive<T>;
+
+    enum Regime
+    {
+        PROCESSING = 0,
+        DUMP_DATA
+    };
 
 protected:
     
@@ -41,6 +56,12 @@ protected:
     
     //-
     surfaceTimeData fds_;
+
+    //-
+    tdPrimitive<scalar> intDotQdS_;
+    
+    //-
+    tdPrimitive<scalar> intFdS_;
     
     //- Keys for identifying observer time
     List<List<List<scalar> > > tobs_;
@@ -68,16 +89,40 @@ protected:
     
     //-
     List<scalar> tauMin_;
+
+    //-
+    Regime operRegime_;
+
+    //-
+    word qdsName_;
+
+    //-
+    word fdsName_;
+
+    //-
+    autoPtr<OFstream> qdsDat_;
+
+    //-
+    autoPtr<OFstream> fdsDat_;
     
 
 protected:
     
-    //-
+    //- Initializes the object
     void initialize();
 
+    //- Returns the reference to a qds file
+    OFstream& qds_out(label iSurf, label iObs);
 
+    //- Returns the reference to an fds file
+    OFstream& fds_out(label iSurf, label iObs);
 
-    
+    //- Returns the name of qds data file
+    const word& qdsName() const;
+
+    //- Returns the name of fds data file
+    const word& fdsName() const;
+
 private:
     //- forbid default constructor
     fwhFormulation();
@@ -108,14 +153,42 @@ public:
     //-
     surfaceTimeData getFdsData();
     
-    //-
-    virtual  scalar observerAcousticPressure (const vectorField& Sf, const vectorField& uS, const scalarField& rhoS, const scalarField& pS, label iObs, label iSurf, scalar ct);
+    //- Calculates acoustic pressure at the specified time
+    scalar observerAcousticPressure
+    (
+        const vectorField& Sf,
+        const vectorField& uS,
+        const scalarField& rhoS,
+        const scalarField& pS,
+        label iObs,
+        label iSurf,
+        scalar ct
+    );
+
+    //- Calculates acoustic data used to compute acoustic pressure
+    // for the specified observer
+    virtual void calculateAcousticData
+    (
+        const vectorField& Sf,
+        const vectorField& uS,
+        const scalarField& rhoS,
+        const scalarField& pS,
+        label iObs,
+        label iSurf,
+        scalar ct
+    ) = 0;
     
     //-
     virtual void update();
     
-    //-
-    virtual void clearExpiredData();
+    //- Cleares memory from the old acoustic data. Data is considered as old
+    //when it can not be used anymore by any observer because distance between
+    //face and the observer is larger than c*dt, where c - sonic speed, dt -
+    //time needed for an acoustic wave to get from the face to observer.
+    void clearExpiredData();
+
+    //- Dumps acoustic to the file
+    void dumpAcousticData();
 };
 
 }; //namespace functionObjects

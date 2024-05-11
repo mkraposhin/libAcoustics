@@ -43,6 +43,7 @@ License
 #include "fwhFormulation.H"
 #include "Farassat1AFormulation.H"
 #include "GTFormulation.H"
+#include "ReadFromFile.H"
 
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
@@ -164,7 +165,11 @@ void Foam::functionObjects::FfowcsWilliamsHawkings::initialize()
     }
 
     //Allocate pointer to FWH formulation
-    if ((formulationType_ == "Farassat1AFormulation") or (formulationType_ == "GTFormulation"))
+    if (
+        (formulationType_ == "Farassat1AFormulation") ||
+        (formulationType_ == "GTFormulation") ||
+        (formulationType_ == "ReadFromFile")
+        )
     {
         if (formulationType_ == "Farassat1AFormulation")
         {
@@ -173,11 +178,18 @@ void Foam::functionObjects::FfowcsWilliamsHawkings::initialize()
                 new Farassat1AFormulation(*this)
             );
         }
-        else
+        else if (formulationType_ == "GTFormulation")
         {
             fwhFormulationPtr_.reset 
             (
                 new GTFormulation(*this)
+            );
+        }
+        else
+        {
+            fwhFormulationPtr_.reset 
+            (
+                new ReadFromFile(*this)
             );
         }
     }
@@ -186,7 +198,8 @@ void Foam::functionObjects::FfowcsWilliamsHawkings::initialize()
         Info << "Wrong formulation type: " << formulationType_ << endl
         << "Please, select one of: " << endl
         << "1) Farassat1AFormulation " << endl
-        << "2) GTFormulation " << endl;
+        << "2) GTFormulation " << endl
+        << "3) ReadFromFile" << endl;
     }
 
 }
@@ -332,36 +345,7 @@ void Foam::functionObjects::FfowcsWilliamsHawkings::correct()
     //update formulation-specific data
     fwhFormulationPtr_->update();
 
-    if (fwhFormulationPtr_.valid())
-    {
-        forAll(observers_, iObs)
-        {
-            forAll(controlSurfaces_, iSurf)
-            {
-                const sampledSurface& surf = controlSurfaces_[iSurf];
-                if (surf.interpolate())
-                {
-                    Info<< "WARNING: Interpolation for surface " << surf.name() << " is on, turn it off"
-                    << endl;
-                }
-
-                const vectorField& Sf = surf.Sf();
-                const vectorField uS (surfaceVelocity(surf)());
-                const scalarField rhoS (surfaceDensity(surf)());
-                const scalarField pS (surfacePressure(surf)() - pInf_);
-
-                scalar oap = fwhFormulationPtr_->observerAcousticPressure(Sf, uS, rhoS, pS, iObs, iSurf, ct);
-
-                if (Pstream::master())
-                {
-                    SoundObserver& obs = observers_[iObs];
-                    obs.apressure(oap); //appends new calculated acoustic pressure
-                    Log<<"OAP = "<< oap <<nl;
-                }
-            }
-        }
-    }
-    else
+    if (!fwhFormulationPtr_.valid())
     {
         if (Pstream::master())
         {
@@ -371,12 +355,41 @@ void Foam::functionObjects::FfowcsWilliamsHawkings::correct()
                 obs.apressure(0.0);
             }
         }
+        return;
     }
-    //Remove old data if needed
-    if (fwhFormulationPtr_.valid())
+
+    forAll(observers_, iObs)
     {
-        fwhFormulationPtr_->clearExpiredData();
+        forAll(controlSurfaces_, iSurf)
+        {
+            const sampledSurface& surf = controlSurfaces_[iSurf];
+            if (surf.interpolate())
+            {
+                Info<< "WARNING: Interpolation for surface "<< surf.name()
+                    << " is on, turn it off" << endl;
+            }
+
+            const vectorField& Sf = surf.Sf();
+            const vectorField uS (surfaceVelocity(surf)());
+            const scalarField rhoS (surfaceDensity(surf)());
+            const scalarField pS (surfacePressure(surf)() - pInf_);
+
+            scalar oap = fwhFormulationPtr_->observerAcousticPressure
+            (
+                Sf, uS, rhoS, pS, iObs, iSurf, ct
+            );
+
+            if (Pstream::master())
+            {
+                SoundObserver& obs = observers_[iObs];
+                obs.apressure(oap); //appends new calculated acoustic pressure
+                Log<<"OAP = "<< oap <<nl;
+            }
+        }
     }
+
+    // Remove old data if needed
+    fwhFormulationPtr_->clearExpiredData();
 }
 
 

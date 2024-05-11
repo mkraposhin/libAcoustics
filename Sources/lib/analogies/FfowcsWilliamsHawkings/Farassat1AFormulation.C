@@ -40,10 +40,7 @@ Foam::functionObjects::Farassat1AFormulation::Farassat1AFormulation
     fwhFormulation(fwh),
     Un_(0),
     L_(0),
-    M_(0),
-
-    intDotQdS_(0, fwh_.obr_.time().value()),
-    intFdS_(0, fwh_.obr_.time().value())
+    M_(0)
 {
     this->initialize();
 }
@@ -82,91 +79,7 @@ void Foam::functionObjects::Farassat1AFormulation::initialize()
     }
 }
 
-Foam::scalar Foam::functionObjects::Farassat1AFormulation::observerAcousticPressure
-(
-    const vectorField& Sf,
-    const vectorField& uS,
-    const scalarField& rhoS,
-    const scalarField& pS,
-    label iObs,
-    label iSurf,
-    scalar ct
-)
-{
-    calculateAcousticPressure(Sf,uS,rhoS,pS,iObs,iSurf,ct);
-    
-    //slightly increase time to get inside of time step
-    scalar ct1 = ct+fwh_.obr_.time().deltaT().value()*1.0e-6;
-
-    scalar retv = 0.0;
-    intDotQdS_.value(iObs) = 0.0;
-    intFdS_.value(iObs)    = 0.0;
-    //calculate acoustic pressure, zero if source didn't reached observer
-    forAll(qds_[iObs][iSurf], iFace)
-    {
-        retv = valueAt(qds_, iObs, iSurf, iFace, ct1);
-        intDotQdS_.value(iObs) += retv;
-        retv = valueAt(fds_, iObs, iSurf, iFace, ct1);
-        intFdS_.value(iObs) += retv;
-
-        //Code to check bisection
-        /*
-        scalar retv2 = 0.0;
-        {
-            const pointTimeData& timeData = qds_[iObs][iSurf][iFace];
-            if (timeData.first().size() < 1)
-            {
-                retv2 = 0.0;
-            }
-            if (ct < timeData.first()[0])
-            {
-                retv2 = 0.0;
-            }
-            if (ct > timeData.first()[timeData.first().size()-1])
-            {
-                retv2 = 0.0;
-            }
-            for(label k=1; k<timeData.first().size(); k++)
-            {
-                label kl = k-1;
-                if (ct == timeData.first()[kl])
-                {
-                    retv2 = timeData.second()[kl];
-                    break;
-                }
-                if (ct == timeData.first()[k])
-                {
-                    retv2 = timeData.second()[k];
-                break;
-            }
-            if ( (ct > timeData.first()[kl]) && (ct < timeData.first()[k]) )
-            {
-                retv2 = timeData.second()[kl] + 
-                (
-                    (timeData.second()[k] - timeData.second()[kl])
-                    /
-                        (timeData.first()[k] - timeData.first()[kl])
-                    ) * (ct - timeData.first()[kl]);
-                    break;
-                }
-            }
-            if (mag(retv - retv2) > 1.0e-8)
-            {
-                Info << "Error in retv: " << timeData << endl;
-            }
-        }
-            */
-    }
-
-    reduce (intDotQdS_.value(iObs), sumOp<scalar>());
-    reduce (intFdS_.value(iObs), sumOp<scalar>());
-
-    scalar coeff1 = 1. / 4. / Foam::constant::mathematical::pi;
-    
-    return (intDotQdS_.value(iObs) + intFdS_.value(iObs))*coeff1;
-}
-
-void Foam::functionObjects::Farassat1AFormulation::calculateAcousticPressure
+void Foam::functionObjects::Farassat1AFormulation::calculateAcousticData
 (
     const vectorField& Sf,
     const vectorField& uS,
@@ -203,73 +116,65 @@ void Foam::functionObjects::Farassat1AFormulation::calculateAcousticPressure
     scalar dotUn(0.0);
     vector dotn(vector::zero);
     
-    forAll(Sf, iFace)
+    forAll(Sf, iFace) // For observer No iObs
     {
-        //For observe No iObs
-        {
-            r = robs_[iObs][iSurf][iFace];
-            magr = magrobs_[iObs][iSurf][iFace];
-            rh = r / magr;
-            dS = mag(Sf[iFace]);
-            n = ni_[iSurf].value(iFace);
-            M = fwh_.vS_[iSurf][iFace] / fwh_.c0_;
-            Mr = M & rh;
-            magM = mag(M);
-            U = (1.0 - rhoS[iFace] / fwh_.rhoRef_) * fwh_.vS_[iSurf][iFace]
-                + rhoS[iFace] * uS[iFace] / fwh_.rhoRef_;
-            Pf = pS[iFace]*tensor::I + rhoS[iFace]*uS[iFace]*(uS[iFace] - fwh_.vS_[iSurf][iFace]);
+        r = robs_[iObs][iSurf][iFace];
+        magr = magrobs_[iObs][iSurf][iFace];
+        rh = r / magr;
+        dS = mag(Sf[iFace]);
+        n = ni_[iSurf].value(iFace);
+        M = fwh_.vS_[iSurf][iFace] / fwh_.c0_;
+        Mr = M & rh;
+        magM = mag(M);
+        U = (1.0 - rhoS[iFace] / fwh_.rhoRef_) * fwh_.vS_[iSurf][iFace]
+            + rhoS[iFace] * uS[iFace] / fwh_.rhoRef_;
+        Pf = pS[iFace]*tensor::I + rhoS[iFace]*uS[iFace]*(uS[iFace] - fwh_.vS_[iSurf][iFace]);
 
-            L = Pf & n;
-            lM = L & M; 
-            lr = L & rh;
-            Un = U & n;
+        L = Pf & n;
+        lM = L & M; 
+        lr = L & rh;
+        Un = U & n;
 
-            OneByOneMr = 1.0 / (1.0 - Mr);
-            OneByOneMrSq = OneByOneMr*OneByOneMr;
+        OneByOneMr = 1.0 / (1.0 - Mr);
+        OneByOneMrSq = OneByOneMr*OneByOneMr;
 
-            Un_[iObs][iSurf].value(iFace) = Un;
-            L_[iObs][iSurf].value(iFace) = L;
-            M_[iObs][iSurf].value(iFace) = M; 
+        Un_[iObs][iSurf].value(iFace) = Un;
+        L_[iObs][iSurf].value(iFace) = L;
+        M_[iObs][iSurf].value(iFace) = M; 
 
-            dotlr = L_[iObs][iSurf].dot(ct, iFace) & rh;
-            dotMr = M_[iObs][iSurf].dot(ct, iFace) & rh;
-            dotUn = Un_[iObs][iSurf].dot(ct, iFace);
+        dotlr = L_[iObs][iSurf].dot(ct, iFace) & rh;
+        dotMr = M_[iObs][iSurf].dot(ct, iFace) & rh;
+        dotUn = Un_[iObs][iSurf].dot(ct, iFace);
 //            dotn = ni_[iSurf].dot(ct, iFace);
 
-            //Thickness source
-            qds_[iObs][iSurf][iFace].first().append(tobs_[iObs][iSurf][iFace]);
-            qds_[iObs][iSurf][iFace].second().append
+        //Thickness source
+        qds_[iObs][iSurf][iFace].first().append(tobs_[iObs][iSurf][iFace]);
+        qds_[iObs][iSurf][iFace].second().append
+        (
             (
-                (
-                    fwh_.rhoRef_ * (dotUn) * OneByOneMrSq / magr
-                    +
-                    fwh_.rhoRef_ * Un * (magr * dotMr + fwh_.c0_ * (Mr - magM*magM)) *
-                    OneByOneMrSq * OneByOneMr / magr / magr
-                )*dS
-            );
-            //Loading source
-            fpart1 = dotlr * (dS / magr / fwh_.c0_) * OneByOneMrSq;
-            fpart2 = (lr - lM) * (dS / magr / magr) * OneByOneMrSq;
-            fpart3 = lr * (dS / magr / magr / fwh_.c0_) * OneByOneMrSq * OneByOneMr * 
-                     (magr * dotMr + fwh_.c0_ * Mr - fwh_.c0_ * magM * magM);
+                fwh_.rhoRef_ * (dotUn) * OneByOneMrSq / magr
+                +
+                fwh_.rhoRef_ * Un * (magr * dotMr + fwh_.c0_ * (Mr - magM*magM)) *
+                OneByOneMrSq * OneByOneMr / magr / magr
+            )*dS
+        );
+        //Loading source
+        fpart1 = dotlr * (dS / magr / fwh_.c0_) * OneByOneMrSq;
+        fpart2 = (lr - lM) * (dS / magr / magr) * OneByOneMrSq;
+        fpart3 = lr * (dS / magr / magr / fwh_.c0_) * OneByOneMrSq * OneByOneMr * 
+                    (magr * dotMr + fwh_.c0_ * Mr - fwh_.c0_ * magM * magM);
 
-            fds_[iObs][iSurf][iFace].first().append(tobs_[iObs][iSurf][iFace]);
-            fds_[iObs][iSurf][iFace].second().append
-            (
-                    fpart1 + fpart2 + fpart3
-            );
-        }//observer
+        fds_[iObs][iSurf][iFace].first().append(tobs_[iObs][iSurf][iFace]);
+        fds_[iObs][iSurf][iFace].second().append
+        (
+                fpart1 + fpart2 + fpart3
+        );
     } //For Sf
 }
 
 void Foam::functionObjects::Farassat1AFormulation::update()
 {
     fwhFormulation::update();
-}
-
-void Foam::functionObjects::Farassat1AFormulation::clearExpiredData()
-{
-    fwhFormulation::clearExpiredData();
 }
 
 // ************************************************************************* //
