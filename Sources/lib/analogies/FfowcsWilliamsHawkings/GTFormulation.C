@@ -39,10 +39,7 @@ Foam::functionObjects::GTFormulation::GTFormulation
 :
     fwhFormulation(fwh),
     Q_(0),
-    L_(0),
-
-    intDotQdS_(0.0, fwh_.obr_.time().value()),
-    intFdS_(0.0, fwh_.obr_.time().value())
+    L_(0)
 {
     this->initialize();
 }
@@ -77,7 +74,7 @@ void Foam::functionObjects::GTFormulation::initialize()
     }
 }
 
-void Foam::functionObjects::GTFormulation::calculateAcousticPressure
+void Foam::functionObjects::GTFormulation::calculateAcousticData
 (
     const vectorField& Sf,
     const vectorField& uS,
@@ -121,113 +118,66 @@ void Foam::functionObjects::GTFormulation::calculateAcousticPressure
     scalar dotQn(0.0);
 
     //GT formulation
-    forAll(Sf, iFace)
+    forAll(Sf, iFace) //For observer No iObs
     {
-        //For observe No iObs
-        {
-            r = robs_[iObs][iSurf][iFace];
+        r = robs_[iObs][iSurf][iFace];
 
-            scalar Rz = sqrt( sqr(r[0]) + sqrBetta * (sqr(r[1]) + sqr(r[2])) );
-            R = -M0 * r[0] / sqrBetta + Rz / sqrBetta;
-            Rh = vector
-                (
-                    (-M0 * Rz + r[0]) / sqrBetta / R,
-                    r[1] / R,
-                    r[2] / R
-                );
-
-            dS = mag(Sf[iFace]);
-            n = ni_[iSurf].value(iFace);
-            M = fwh_.vS_[iSurf][iFace] / fwh_.c0_;
-            magM = mag(M);
-
-            Qi = (-fwh_.rhoRef_ * fwh_.U0_ + rhoS[iFace] * (uS[iFace] + fwh_.U0_));
-            Lij = pS[iFace] * tensor::I + rhoS[iFace] * uS[iFace] * (uS[iFace] + fwh_.U0_);
-            Qn = Qi & n;
-            Li = Lij & n;
-
-            LR = Li & Rh;
-            LM = Li & M; 
-            MR = M & Rh;
-            OneByOneMr = 1.0 / (1.0 - MR); 
-            OneByOneMrSq = OneByOneMr * OneByOneMr;
-
-            Q_[iObs][iSurf].value(iFace) = Qi;
-            L_[iObs][iSurf].value(iFace) = Li;
-
-            dotQn = Q_[iObs][iSurf].dot(ct, iFace) & n;
-            dotLR = L_[iObs][iSurf].dot(ct, iFace) & Rh;
-
-            qds_[iObs][iSurf][iFace].first().append(tobs_[iObs][iSurf][iFace]);
-            qds_[iObs][iSurf][iFace].second().append
+        scalar Rz = sqrt( sqr(r[0]) + sqrBetta * (sqr(r[1]) + sqr(r[2])) );
+        R = -M0 * r[0] / sqrBetta + Rz / sqrBetta;
+        Rh = vector
             (
-                (
-                    (dotQn) * OneByOneMrSq / R 
-                    +
-                    Qn * fwh_.c0_ * (MR - magM*magM) * OneByOneMrSq * OneByOneMr / R / R 
-                ) * dS
+                (-M0 * Rz + r[0]) / sqrBetta / R,
+                r[1] / R,
+                r[2] / R
             );
 
-            fpart1 = (dotLR) / R / fwh_.c0_ * OneByOneMrSq * dS;
-            fpart2 = (LR - LM) / R / R * OneByOneMrSq * dS; 
-            fpart3 = LR * (MR - magM * magM) / R / R * OneByOneMrSq * OneByOneMr * dS;
+        dS = mag(Sf[iFace]);
+        n = ni_[iSurf].value(iFace);
+        M = fwh_.vS_[iSurf][iFace] / fwh_.c0_;
+        magM = mag(M);
 
-            fds_[iObs][iSurf][iFace].first().append(tobs_[iObs][iSurf][iFace]);
-            fds_[iObs][iSurf][iFace].second().append
+        Qi = (-fwh_.rhoRef_ * fwh_.U0_ + rhoS[iFace] * (uS[iFace] + fwh_.U0_));
+        Lij = pS[iFace] * tensor::I + rhoS[iFace] * uS[iFace] * (uS[iFace] + fwh_.U0_);
+        Qn = Qi & n;
+        Li = Lij & n;
+
+        LR = Li & Rh;
+        LM = Li & M; 
+        MR = M & Rh;
+        OneByOneMr = 1.0 / (1.0 - MR); 
+        OneByOneMrSq = OneByOneMr * OneByOneMr;
+
+        Q_[iObs][iSurf].value(iFace) = Qi;
+        L_[iObs][iSurf].value(iFace) = Li;
+
+        dotQn = Q_[iObs][iSurf].dot(ct, iFace) & n;
+        dotLR = L_[iObs][iSurf].dot(ct, iFace) & Rh;
+
+        qds_[iObs][iSurf][iFace].first().append(tobs_[iObs][iSurf][iFace]);
+        qds_[iObs][iSurf][iFace].second().append
+        (
             (
-                fpart1 + fpart2 + fpart3
-            );
-        }//observer
+                (dotQn) * OneByOneMrSq / R 
+                +
+                Qn * fwh_.c0_ * (MR - magM*magM) * OneByOneMrSq * OneByOneMr / R / R 
+            ) * dS
+        );
+
+        fpart1 = (dotLR) / R / fwh_.c0_ * OneByOneMrSq * dS;
+        fpart2 = (LR - LM) / R / R * OneByOneMrSq * dS; 
+        fpart3 = LR * (MR - magM * magM) / R / R * OneByOneMrSq * OneByOneMr * dS;
+
+        fds_[iObs][iSurf][iFace].first().append(tobs_[iObs][iSurf][iFace]);
+        fds_[iObs][iSurf][iFace].second().append
+        (
+            fpart1 + fpart2 + fpart3
+        );
     } //For Sf
-}
-
-Foam::scalar Foam::functionObjects::GTFormulation::observerAcousticPressure
-(
-    const vectorField& Sf,
-    const vectorField& uS,
-    const scalarField& rhoS,
-    const scalarField& pS,
-    label iObs,
-    label iSurf,
-    scalar ct
-)
-{
-    calculateAcousticPressure(Sf,uS,rhoS,pS,iObs,iSurf,ct);
-
-    //slightly increase time to get inside of time step
-    scalar ct1 = ct+fwh_.obr_.time().deltaT().value()*1.0e-6;
-
-    scalar retv = 0.0;
-    intDotQdS_.value(iObs) = 0.0;
-    intFdS_.value(iObs)    = 0.0;
-    //calculate acoustic pressure, zero if source didn't reached observer
-    forAll(fwh_.controlSurfaces_, iSurf)
-    {
-        forAll(qds_[iObs][iSurf], iFace)
-        {
-            retv = valueAt(qds_, iObs, iSurf, iFace, ct1);
-            intDotQdS_.value(iObs) += retv;
-            retv = valueAt(fds_, iObs, iSurf, iFace, ct1);
-            intFdS_.value(iObs) += retv;
-        }
-    }
-
-    reduce (intDotQdS_.value(iObs), sumOp<scalar>());
-    reduce (intFdS_.value(iObs), sumOp<scalar>());
-
-    scalar coeff1 = 1. / 4. / Foam::constant::mathematical::pi;
-
-    return (intDotQdS_.value(iObs) + intFdS_.value(iObs))*coeff1;
 }
 
 void Foam::functionObjects::GTFormulation::update()
 {
     fwhFormulation::update();
-}
-
-void Foam::functionObjects::GTFormulation::clearExpiredData()
-{
-    fwhFormulation::clearExpiredData();
 }
 
 // ************************************************************************* //

@@ -7,6 +7,8 @@ Foam::functionObjects::fwhFormulation::fwhFormulation(const FfowcsWilliamsHawkin
     fwhProbeI_(0),
     qds_(0),
     fds_(0),
+    intDotQdS_(0.0, fwh_.obr_.time().value()),
+    intFdS_(0.0, fwh_.obr_.time().value()),
     tobs_(0),
     robs_(0),
     magrobs_(0),
@@ -14,7 +16,8 @@ Foam::functionObjects::fwhFormulation::fwhFormulation(const FfowcsWilliamsHawkin
     nl_(0),
     rMax_(0),
     tauMax_(0),
-    tauMin_(0)
+    tauMin_(0),
+    operRegime_(Regime::PROCESSING)
 {
     this->initialize();
 }
@@ -143,28 +146,62 @@ void Foam::functionObjects::fwhFormulation::initialize()
             ni_[iSurf].value(iFace) *= nl_[iSurf][iFace];
         }
     }
+
+    // initialize dat files
+
+    if (fwh_.foundProperty("dumpToFile"))
+    {
+        if (fwh_.getProperty<bool>("dumpToFile"))
+        {
+            operRegime_ = Regime::DUMP_DATA;
+        }
+    }
+    if (operRegime_ == DUMP_DATA)
+    {
+        qdsName_ = "qds.dat"; // fwh_.propertyDict().lookupOrDefault("qdsName", "qds.dat");
+        fdsName_ = "fds.dat"; // fwh_.propertyDict().lookupOrDefault("fdsName", "fds.dat");
+        // fwh_.getProperty()
+        // fwh_.foundProperty()
+        qdsDat_.reset(new OFstream(qdsName_));
+        fdsDat_.reset(new OFstream(fdsName_));
+    }
+}
+
+Foam::OFstream& Foam::functionObjects::fwhFormulation::
+qds_out(label iSurf, label iObs)
+{
+    return qdsDat_();
+}
+
+Foam::OFstream& Foam::functionObjects::fwhFormulation::
+fds_out(label iSurf, label iObs)
+{
+    return fdsDat_();
+}
+
+const Foam::word&
+Foam::functionObjects::fwhFormulation::qdsName() const
+{
+    return qdsName_;
+}
+
+const Foam::word&
+Foam::functionObjects::fwhFormulation::fdsName() const
+{
+    return fdsName_;
 }
 
 Foam::functionObjects::fwhFormulation::~fwhFormulation()
 {
 }
 
-Foam::scalar Foam::functionObjects::fwhFormulation::observerAcousticPressure
-(
-    const vectorField& Sf,
-    const vectorField& uS,
-    const scalarField& rhoS,
-    const scalarField& pS,
-    label iObs,
-    label iSurf,
-    scalar ct
-)
-{
-    return 0.0;
-}
-
 void Foam::functionObjects::fwhFormulation::clearExpiredData()
 {
+    if (operRegime_ == DUMP_DATA)
+    {
+        return;
+    }
+
     scalar ct   = fwh_.obr_.time().value();// - fwh_.obr_.time().deltaT().value()*1.0e-6;
     reduce(ct, minOp<scalar>());
     
@@ -179,32 +216,117 @@ void Foam::functionObjects::fwhFormulation::clearExpiredData()
         scalar expiredTime = 0.0;
         label  expiredIndex= -1;
 
-        forAll(qds_, iObs)
+        forAllFaces(qds_, iObs, iSurf, iFace)
         {
-            forAll(qds_[iObs], iSurf)
+            if (tauMin_.size())
             {
-                forAll(qds_[iObs][iSurf], iFace)
-                {
-                    if (tauMin_.size())
-                    {
-                        expiredTime = ct - (tauMax_[iObs] - tauMin_[iObs] + fwh_.responseDelay_);
-                    }
-                    else
-                    {
-                        expiredTime = ct - tauMax_[iObs];
-                    }
-                    const pointTimeData& qdsOldPointData = qds_[iObs][iSurf][iFace];
-                    expiredIndex= findExpiredIndex(qdsOldPointData, expiredTime);
-                    // -1 - if nothing found, from 0 to (size-1) for indices to remove
-                    if (expiredIndex > -1)
-                    {
-                        qds_[iObs][iSurf][iFace].operator=(getNewPointData(qds_[iObs][iSurf][iFace], expiredIndex));
-                        fds_[iObs][iSurf][iFace].operator=(getNewPointData(fds_[iObs][iSurf][iFace], expiredIndex));
-                    }
-                }
+                expiredTime = ct - (tauMax_[iObs] - tauMin_[iObs] + fwh_.responseDelay_);
+            }
+            else
+            {
+                expiredTime = ct - tauMax_[iObs];
+            }
+            const pointTimeData& qdsOldPointData = qds_[iObs][iSurf][iFace];
+            expiredIndex= findExpiredIndex(qdsOldPointData, expiredTime);
+            // -1 - if nothing found, from 0 to (size-1) for indices to remove
+            if (expiredIndex > -1)
+            {
+                qds_[iObs][iSurf][iFace].operator=(getNewPointData(qds_[iObs][iSurf][iFace], expiredIndex));
+                fds_[iObs][iSurf][iFace].operator=(getNewPointData(fds_[iObs][iSurf][iFace], expiredIndex));
+            }
+        }
+
+
+        forAllFaces(qds_, iObs, iSurf, iFace)
+        {
+            if (tauMin_.size())
+            {
+                expiredTime = ct - (tauMax_[iObs] - tauMin_[iObs] + fwh_.responseDelay_);
+            }
+            else
+            {
+                expiredTime = ct - tauMax_[iObs];
+            }
+            const pointTimeData& qdsOldPointData = qds_[iObs][iSurf][iFace];
+            expiredIndex= findExpiredIndex(qdsOldPointData, expiredTime);
+            // -1 - if nothing found, from 0 to (size-1) for indices to remove
+            if (expiredIndex > -1)
+            {
+                qds_[iObs][iSurf][iFace].operator=
+                    (
+                        getNewPointData(qds_[iObs][iSurf][iFace], expiredIndex)
+                    );
+                fds_[iObs][iSurf][iFace].operator=
+                    (
+                        getNewPointData(fds_[iObs][iSurf][iFace], expiredIndex)
+                    );
             }
         }
     }
+}
+
+void Foam::functionObjects::fwhFormulation::dumpAcousticData()
+{
+    if (qds_.size() == 0 ||
+        qds_[0].size() == 0 ||
+        qds_[0][0].size() == 0 ||
+        qds_[0][0][0].first().size() == 0)
+    {
+        return;
+    }
+
+    if (fds_.size() == 0 ||
+        fds_[0].size() == 0 ||
+        fds_[0][0].size() == 0 ||
+        fds_[0][0][0].first().size() == 0)
+    {
+        return;
+    }
+
+    forAll(qds_[0][0][0].first(), iTime)
+    {
+        forAllSurfaces(qds_, iObs, iSurf)
+        {
+            // maybe it's better to use higher level functions
+            List<scalar> tobs_buffer(qds_[iObs][iSurf].size(), 0.0);
+            List<scalar> xds_buffer(qds_[iObs][iSurf].size(), 0.0);
+
+            forAll(qds_[iObs][iSurf], iFace)
+            {
+                tobs_buffer[iFace] = qds_[iObs][iSurf][iFace].first()[iTime];
+                xds_buffer[iFace] = qds_[iObs][iSurf][iFace].second()[iTime];
+            }
+            qds_out(iObs, iSurf).writeRaw
+            (
+                reinterpret_cast<const char*>(tobs_buffer.cdata()),
+                tobs_buffer.size()*sizeof(scalar)
+            );
+            qds_out(iObs, iSurf).writeRaw
+            (
+                reinterpret_cast<const char*>(xds_buffer.cdata()),
+                xds_buffer.size()*sizeof(scalar)
+            );
+
+            forAll(fds_[iObs][iSurf], iFace)
+            {
+                tobs_buffer[iFace] = fds_[iObs][iSurf][iFace].first()[iTime];
+                xds_buffer[iFace] = fds_[iObs][iSurf][iFace].second()[iTime];
+            }
+            fds_out(iObs, iSurf).writeRaw
+            (
+                reinterpret_cast<const char*>(tobs_buffer.cdata()),
+                tobs_buffer.size()*sizeof(scalar)
+            );
+            fds_out(iObs, iSurf).writeRaw
+            (
+                reinterpret_cast<const char*>(xds_buffer.cdata()),
+                xds_buffer.size()*sizeof(scalar)
+            );
+        }
+    }
+
+    qds_.clear();
+    fds_.clear();
 }
 
 void Foam::functionObjects::fwhFormulation::update()
@@ -286,7 +408,7 @@ void Foam::functionObjects::fwhFormulation::update()
         }
     }
     
-    //Update retarted time
+    // Update retarted time
     forAll(fwh_.observers_, iObs)
     {
         forAll(fwh_.controlSurfaces_, iSurf)
@@ -487,6 +609,50 @@ Foam::functionObjects::fwhFormulation::surfaceTimeData Foam::functionObjects::fw
     return fds_;
 }
 
+Foam::scalar Foam::functionObjects::fwhFormulation::observerAcousticPressure
+(
+    const vectorField& Sf,
+    const vectorField& uS,
+    const scalarField& rhoS,
+    const scalarField& pS,
+    label iObs,
+    label iSurf,
+    scalar ct
+)
+{
+    calculateAcousticData(Sf,uS,rhoS,pS,iObs,iSurf,ct);
+
+    if (operRegime_ == DUMP_DATA)
+    {
+        dumpAcousticData();
+        return 0.0;
+    }
+
+    //slightly increase time to get inside of time step
+    scalar ct1 = ct+fwh_.obr_.time().deltaT().value()*1.0e-6;
+
+    scalar retv = 0.0;
+    intDotQdS_.value(iObs) = 0.0;
+    intFdS_.value(iObs)    = 0.0;
+    //calculate acoustic pressure, zero if source didn't reached observer
+    forAll(fwh_.controlSurfaces_, iSurf)
+    {
+        forAll(qds_[iObs][iSurf], iFace)
+        {
+            retv = valueAt(qds_, iObs, iSurf, iFace, ct1);
+            intDotQdS_.value(iObs) += retv;
+            retv = valueAt(fds_, iObs, iSurf, iFace, ct1);
+            intFdS_.value(iObs) += retv;
+        }
+    }
+
+    reduce (intDotQdS_.value(iObs), sumOp<scalar>());
+    reduce (intFdS_.value(iObs), sumOp<scalar>());
+
+    scalar coeff1 = 1. / 4. / Foam::constant::mathematical::pi;
+
+    return (intDotQdS_.value(iObs) + intFdS_.value(iObs))*coeff1;
+}
 
 //
 //END-OF-FILE

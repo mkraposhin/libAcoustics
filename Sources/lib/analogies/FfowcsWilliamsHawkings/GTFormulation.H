@@ -18,28 +18,11 @@ class GTFormulation : public fwhFormulation
 
 private:
 
-    //types for internal usage
-
-    typedef Pair<DynamicList<scalar> > pointTimeData;
-
-    typedef List<List<List<pointTimeData > > > surfaceTimeData;
-
-    template<typename T>
-    using tdPrimitive = AcousticAnalogy::tdPrimitive<T>;
-
-private:
-
     //-
     List<List<tdPrimitive<vector> > > Q_;
 
     //-
     List<List<tdPrimitive<vector> > > L_;
-
-    //-
-    tdPrimitive<scalar> intDotQdS_;
-    
-    //-
-    tdPrimitive<scalar> intFdS_;
     
 private:
     
@@ -51,20 +34,25 @@ private:
 
 public:
     
-    //-
+    //- Constructs a new GTFormulation object using
+    //the reference to FfowcsWilliamsHawkings object
     GTFormulation(const FfowcsWilliamsHawkings& fwh);
     
-    //-
+    //- Destructor for an GTFormulation object
     ~GTFormulation();
-    
-    //-
-    scalar observerAcousticPressure (const vectorField& Sf, const vectorField& uS, const scalarField& rhoS, const scalarField& pS, label iObs, label iSurf, scalar ct);
-    
-    //-
-    inline void calculateAcousticPressure (const vectorField& Sf, const vectorField& uS, const scalarField& rhoS, const scalarField& pS, label iObs, label iSurf, scalar ct);
-    
-    //-
-    void clearExpiredData();
+
+    //- Calculates acoustic data used to compute acoustic pressure
+    // for the specified observer by employing GT formulation of FWH Analogy
+    void calculateAcousticData
+    (
+        const vectorField& Sf,
+        const vectorField& uS,
+        const scalarField& rhoS,
+        const scalarField& pS,
+        label iObs,
+        label iSurf,
+        scalar ct
+    ) override;
     
     //-
     void update();

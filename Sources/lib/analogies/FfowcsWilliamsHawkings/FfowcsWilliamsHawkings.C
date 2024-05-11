@@ -332,36 +332,7 @@ void Foam::functionObjects::FfowcsWilliamsHawkings::correct()
     //update formulation-specific data
     fwhFormulationPtr_->update();
 
-    if (fwhFormulationPtr_.valid())
-    {
-        forAll(observers_, iObs)
-        {
-            forAll(controlSurfaces_, iSurf)
-            {
-                const sampledSurface& surf = controlSurfaces_[iSurf];
-                if (surf.interpolate())
-                {
-                    Info<< "WARNING: Interpolation for surface " << surf.name() << " is on, turn it off"
-                    << endl;
-                }
-
-                const vectorField& Sf = surf.Sf();
-                const vectorField uS (surfaceVelocity(surf)());
-                const scalarField rhoS (surfaceDensity(surf)());
-                const scalarField pS (surfacePressure(surf)() - pInf_);
-
-                scalar oap = fwhFormulationPtr_->observerAcousticPressure(Sf, uS, rhoS, pS, iObs, iSurf, ct);
-
-                if (Pstream::master())
-                {
-                    SoundObserver& obs = observers_[iObs];
-                    obs.apressure(oap); //appends new calculated acoustic pressure
-                    Log<<"OAP = "<< oap <<nl;
-                }
-            }
-        }
-    }
-    else
+    if (!fwhFormulationPtr_.valid())
     {
         if (Pstream::master())
         {
@@ -371,12 +342,41 @@ void Foam::functionObjects::FfowcsWilliamsHawkings::correct()
                 obs.apressure(0.0);
             }
         }
+        return;
     }
-    //Remove old data if needed
-    if (fwhFormulationPtr_.valid())
+
+    forAll(observers_, iObs)
     {
-        fwhFormulationPtr_->clearExpiredData();
+        forAll(controlSurfaces_, iSurf)
+        {
+            const sampledSurface& surf = controlSurfaces_[iSurf];
+            if (surf.interpolate())
+            {
+                Info<< "WARNING: Interpolation for surface "<< surf.name()
+                    << " is on, turn it off" << endl;
+            }
+
+            const vectorField& Sf = surf.Sf();
+            const vectorField uS (surfaceVelocity(surf)());
+            const scalarField rhoS (surfaceDensity(surf)());
+            const scalarField pS (surfacePressure(surf)() - pInf_);
+
+            scalar oap = fwhFormulationPtr_->observerAcousticPressure
+            (
+                Sf, uS, rhoS, pS, iObs, iSurf, ct
+            );
+
+            if (Pstream::master())
+            {
+                SoundObserver& obs = observers_[iObs];
+                obs.apressure(oap); //appends new calculated acoustic pressure
+                Log<<"OAP = "<< oap <<nl;
+            }
+        }
     }
+
+    // Remove old data if needed
+    fwhFormulationPtr_->clearExpiredData();
 }
 
 
