@@ -205,7 +205,7 @@ void Foam::functionObjects::fwhFormulation::clearExpiredData()
     scalar ct   = fwh_.obr_.time().value();// - fwh_.obr_.time().deltaT().value()*1.0e-6;
     reduce(ct, minOp<scalar>());
 
-    if (fwh_.cleanFreq_ > ++fwhProbeI_)
+    if (fwh_.cleanFreq_ <= 0 || fwh_.cleanFreq_ > ++fwhProbeI_)
     {
         return;
     }
@@ -247,7 +247,7 @@ void Foam::functionObjects::fwhFormulation::dumpAcousticData
     label iSurf
 )
 {
-    if (fwh_.cleanFreq_ > ++dumpProbeI_[iObs][iSurf])
+    if (fwh_.cleanFreq_ <= 0 || fwh_.cleanFreq_ > ++dumpProbeI_[iObs][iSurf])
     {
         return;
     }
@@ -284,7 +284,7 @@ void Foam::functionObjects::fwhFormulation::dumpAcousticData
             tobs_buffer[iFace] = qds_[iObs][iSurf][iFace].first()[iTime];
             xds_buffer[iFace] = qds_[iObs][iSurf][iFace].second()[iTime];
         }
-        Info<<"tobs = " << tobs_buffer << endl;
+        
         qds_out(iObs, iSurf).writeRaw
         (
             reinterpret_cast<const char*>(tobs_buffer.cdata()),
@@ -311,9 +311,10 @@ void Foam::functionObjects::fwhFormulation::dumpAcousticData
             reinterpret_cast<const char*>(xds_buffer.cdata()),
             xds_buffer.size()*sizeof(scalar)
         );
+        Info << "fds_ = " << xds_buffer << endl;
     }
 
-    forAll(qds_, iFace)
+    forAll(qds_[iObs][iSurf], iFace)
     {
             qds_[iObs][iSurf][iFace].first().clear();
             qds_[iObs][iSurf][iFace].second().clear();
@@ -638,6 +639,8 @@ Foam::scalar Foam::functionObjects::fwhFormulation::observerAcousticPressure
             intFdS_.value(iObs) += retv;
         }
     }
+    Info << "DotQ = " << intDotQdS_.value(iObs) << endl;
+    Info << "F = " << intFdS_.value(iObs) << endl;
 
     reduce (intDotQdS_.value(iObs), sumOp<scalar>());
     reduce (intFdS_.value(iObs), sumOp<scalar>());

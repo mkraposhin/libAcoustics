@@ -103,6 +103,8 @@ void Foam::functionObjects::ReadFromFile::calculateAcousticData
         {
             break;
         }
+
+        // place a limit on maximum number of reads
     }
 }
 
@@ -150,9 +152,9 @@ void Foam::functionObjects::ReadFromFile::pullDataFromFiles
         xds_buffer = 0.0;
         qds_in(iObs,iSurf).readRaw(reinterpret_cast<char*>(tobs_buffer.data()), sizeof(scalar)*tobs_buffer.size());
         qds_in(iObs,iSurf).readRaw(reinterpret_cast<char*>(xds_buffer.data()), sizeof(scalar)*xds_buffer.size());
-        Info << i_block << ", max/min tobs: " << max(tobs_buffer) << "/" << min(tobs_buffer) << ", sz = " << (sizeof(scalar)*tobs_buffer.size()) << endl;
-        Info << i_block << ", max/min xds: " << max(xds_buffer) << "/" << min(xds_buffer) << endl;
-        Info<<"tobs = " << tobs_buffer << endl;
+        // Info << i_block << ", max/min tobs: " << max(tobs_buffer) << "/" << min(tobs_buffer) << ", sz = " << (sizeof(scalar)*tobs_buffer.size()) << endl;
+        // Info << i_block << ", max/min xds: " << max(xds_buffer) << "/" << min(xds_buffer) << endl;
+        // Info<<"tobs = " << tobs_buffer << endl;
         forAll(qds_[iObs][iSurf], iFace)
         {
             qds_[iObs][iSurf][iFace].first().append(tobs_buffer[iFace]);
