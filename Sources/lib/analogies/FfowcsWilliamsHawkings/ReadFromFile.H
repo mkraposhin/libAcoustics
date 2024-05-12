@@ -62,6 +62,17 @@ public:
     
     //-
     void initialize();
+
+private:
+
+    //- Returns the reference to a qds file stream
+    IFstream& qds_in(label iSurf, label iObs);
+
+    //- Returns the reference to an fds file stream
+    IFstream& fds_in(label iSurf, label iObs);
+
+    //- Pulls data (new records in qds_ and fds_) arrays from files
+    void pullDataFromFiles(label iObs, label iSurf);
 };
 
 }

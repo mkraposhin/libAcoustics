@@ -76,14 +76,19 @@ private:
     friend class fwhFormulation;
     friend class Farassat1AFormulation;
     friend class GTFormulation;
-    friend class fvmInterpolationFormulation;
 
 protected:
 
     friend class fwhFormulation;
     friend class Farassat1AFormulation;
     friend class GTFormulation;
-    friend class fvmInterpolationFormulation;
+    friend class ReadFromFile;
+
+    enum Regime
+    {
+        PROCESSING = 0,
+        DUMP_DATA
+    };
 
 private:
 
@@ -148,7 +153,7 @@ private:
         //-
         autoPtr<fwhFormulation> fwhFormulationPtr_;
 
-        //
+        //-
         label cleanFreq_;
 
         //- Interpolation scheme to use for sampling
@@ -159,6 +164,9 @@ private:
 
         //- Information for merging surfaces
         List<mergeInfo> mergeList_;
+    
+        //- Sets operational regime
+        Regime operRegime_;
 
 protected:
 

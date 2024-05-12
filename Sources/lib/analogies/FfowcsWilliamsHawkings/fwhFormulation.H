@@ -37,12 +37,6 @@ protected:
     template<typename T>
     using tdPrimitive = AcousticAnalogy::tdPrimitive<T>;
 
-    enum Regime
-    {
-        PROCESSING = 0,
-        DUMP_DATA
-    };
-
 protected:
     
     //-
@@ -50,6 +44,9 @@ protected:
     
     //-
     label fwhProbeI_;
+
+    //-
+    List<List<label>> dumpProbeI_;
 
     //-
     surfaceTimeData qds_;
@@ -89,9 +86,6 @@ protected:
     
     //-
     List<scalar> tauMin_;
-
-    //-
-    Regime operRegime_;
 
     //-
     word qdsName_;
@@ -188,7 +182,7 @@ public:
     void clearExpiredData();
 
     //- Dumps acoustic to the file
-    void dumpAcousticData();
+    void dumpAcousticData(label iObs, label iSurf);
 };
 
 }; //namespace functionObjects

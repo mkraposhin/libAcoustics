@@ -39,8 +39,15 @@ Foam::functionObjects::ReadFromFile::ReadFromFile
     fwhFormulation(fwh),
     qdsInput_(nullptr),
     fdsInput_(nullptr),
-    n_blocks_to_read_(10)
+    n_blocks_to_read_(2)
 {
+    if (fwh_.operRegime_ == FfowcsWilliamsHawkings::DUMP_DATA)
+    {
+        FatalError <<
+            "ReadFromFile formulation cannot work with "
+            "dumpToFile regime, see the corresponding dict"
+            << nl << abort(FatalError);
+    }
     this->initialize();
 }
 
@@ -51,11 +58,6 @@ Foam::functionObjects::ReadFromFile::~ReadFromFile()
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
-void Foam::functionObjects::ReadFromFile::initialize()
-{
-    qdsInput_.reset(new IFstream(qdsName()));
-    fdsInput_.reset(new IFstream(fdsName()));
-}
 
 void Foam::functionObjects::ReadFromFile::calculateAcousticData
 (
@@ -68,12 +70,17 @@ void Foam::functionObjects::ReadFromFile::calculateAcousticData
     scalar ct
 )
 {
-    while(!qdsInput_().eof() && !fdsInput_().eof())
+    while(!qds_in(iObs,iSurf).eof() && !fds_in(iObs,iSurf).eof())
     {
         // Step 1. Find the maximum available time point in qds_ / fds_.
         bool t_out_of_bounds = false;
         forAll(qds_[iObs][iSurf], iFace)
         {
+            if (!qds_[iObs][iSurf][iFace].first().size())
+            {
+                t_out_of_bounds = true;
+                break;
+            }
             if (qds_[iObs][iSurf][iFace].first().back() <= ct)
             {
                 t_out_of_bounds = true;
@@ -84,41 +91,12 @@ void Foam::functionObjects::ReadFromFile::calculateAcousticData
         // Step 2. If it is larger than ct, then load data from files.
         if (t_out_of_bounds)
         {
-            label i_block = 0;
-            List<scalar> tobs_buffer (qds_[iObs][iSurf].size());
-            List<scalar> xds_buffer (qds_[iObs][iSurf].size());
-            // read the block
-            while (n_blocks_to_read_ > i_block++)
-            {
-                //read t_obs, qds
-                tobs_buffer = 0.0;
-                xds_buffer = 0.0;
-                qdsInput_().readRaw(reinterpret_cast<char*>(tobs_buffer.data()), sizeof(scalar)*tobs_buffer.size());
-                qdsInput_().readRaw(reinterpret_cast<char*>(xds_buffer.data()), sizeof(scalar)*xds_buffer.size());
-                forAll(qds_[iObs][iSurf], iFace)
-                {
-                    qds_[iObs][iSurf][iFace].first().append(tobs_buffer[iFace]);
-                    qds_[iObs][iSurf][iFace].second().append(xds_buffer[iFace]);
-                }
-                if (qdsInput_().eof())
-                {
-                    break;
-                }
-
-                tobs_buffer = 0.0;
-                xds_buffer = 0.0;
-                fdsInput_().readRaw(reinterpret_cast<char*>(tobs_buffer.data()), sizeof(scalar)*tobs_buffer.size());
-                fdsInput_().readRaw(reinterpret_cast<char*>(xds_buffer.data()), sizeof(scalar)*xds_buffer.size());
-                forAll(fds_[iObs][iSurf], iFace)
-                {
-                    fds_[iObs][iSurf][iFace].first().append(tobs_buffer[iFace]);
-                    fds_[iObs][iSurf][iFace].second().append(xds_buffer[iFace]);
-                }
-                if (fdsInput_().eof())
-                {
-                    break;
-                }
-            }
+            Info<< "Loading new acoustic data from file for time "
+                << ct
+                << ", qds eof = " << qds_in(iObs,iSurf).eof()
+                << ", fds eof = " << fds_in(iObs,iSurf).eof()
+                << endl;
+            pullDataFromFiles(iObs, iSurf);
         }
 
         if (!t_out_of_bounds)
@@ -131,6 +109,72 @@ void Foam::functionObjects::ReadFromFile::calculateAcousticData
 void Foam::functionObjects::ReadFromFile::update()
 {
     fwhFormulation::update();
+}
+
+void Foam::functionObjects::ReadFromFile::initialize()
+{
+    qdsInput_.reset(new IFstream(qdsName(), IOstreamOption::BINARY));
+    fdsInput_.reset(new IFstream(fdsName(), IOstreamOption::BINARY));
+
+    Info << "qds name = " << qdsName() << endl;
+    Info << "qds opened = " << qdsInput_().opened() << endl;
+    Info << "qds good = " << qdsInput_().good() << endl;
+    
+    //! Check for opened & good
+}
+
+Foam::IFstream&
+Foam::functionObjects::ReadFromFile::qds_in(label iSurf, label iObs)
+{
+    return qdsInput_();
+}
+
+Foam::IFstream& Foam::functionObjects::ReadFromFile::fds_in(label iSurf, label iObs)
+{
+    return fdsInput_();
+}
+
+void Foam::functionObjects::ReadFromFile::pullDataFromFiles
+(
+    label iObs, label iSurf
+)
+{
+    label i_block = 0;
+    List<scalar> tobs_buffer (qds_[iObs][iSurf].size());
+    List<scalar> xds_buffer (qds_[iObs][iSurf].size());
+    // read the block
+    while (n_blocks_to_read_ > i_block++)
+    {
+        //read t_obs, qds
+        tobs_buffer = 0.0;
+        xds_buffer = 0.0;
+        qds_in(iObs,iSurf).readRaw(reinterpret_cast<char*>(tobs_buffer.data()), sizeof(scalar)*tobs_buffer.size());
+        qds_in(iObs,iSurf).readRaw(reinterpret_cast<char*>(xds_buffer.data()), sizeof(scalar)*xds_buffer.size());
+        Info << i_block << ", max/min tobs: " << max(tobs_buffer) << "/" << min(tobs_buffer) << ", sz = " << (sizeof(scalar)*tobs_buffer.size()) << endl;
+        Info << i_block << ", max/min xds: " << max(xds_buffer) << "/" << min(xds_buffer) << endl;
+        Info<<"tobs = " << tobs_buffer << endl;
+        forAll(qds_[iObs][iSurf], iFace)
+        {
+            qds_[iObs][iSurf][iFace].first().append(tobs_buffer[iFace]);
+            qds_[iObs][iSurf][iFace].second().append(xds_buffer[iFace]);
+        }
+
+        tobs_buffer = 0.0;
+        xds_buffer = 0.0;
+        fds_in(iObs,iSurf).readRaw(reinterpret_cast<char*>(tobs_buffer.data()), sizeof(scalar)*tobs_buffer.size());
+        fds_in(iObs,iSurf).readRaw(reinterpret_cast<char*>(xds_buffer.data()), sizeof(scalar)*xds_buffer.size());
+        forAll(fds_[iObs][iSurf], iFace)
+        {
+            fds_[iObs][iSurf][iFace].first().append(tobs_buffer[iFace]);
+            fds_[iObs][iSurf][iFace].second().append(xds_buffer[iFace]);
+        }
+
+        // ???
+        if (fds_in(iObs,iSurf).eof() || qds_in(iObs,iSurf).eof())
+        {
+            break;
+        }
+    }
 }
 
 // ************************************************************************* //

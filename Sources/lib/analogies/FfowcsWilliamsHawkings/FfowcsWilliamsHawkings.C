@@ -92,7 +92,8 @@ Foam::functionObjects::FfowcsWilliamsHawkings::FfowcsWilliamsHawkings
     cleanFreq_(100),
     interpolationScheme_(word::null),
     controlSurfaces_(0),
-    mergeList_(0)
+    mergeList_(0),
+    operRegime_(Regime::PROCESSING)
 {
     Info << "Name = " << name << endl;
     this->read(dict);
@@ -243,6 +244,16 @@ bool Foam::functionObjects::FfowcsWilliamsHawkings::read(const dictionary& dict)
     }
 
     cleanFreq_ = dict.lookupOrDefault("cleanFreq",100);
+
+    if (dict.found("dumpToFile"))
+    {
+        if (dict.get<bool>("dumpToFile"))
+        {
+            operRegime_ = Regime::DUMP_DATA;
+            Info<<"Setting regime to"
+                << operRegime_ << endl;
+        }
+    }
 
     const fvMesh& mesh = refCast<const fvMesh>(obr_);
 

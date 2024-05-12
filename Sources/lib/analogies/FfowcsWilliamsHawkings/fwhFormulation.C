@@ -5,6 +5,7 @@ Foam::functionObjects::fwhFormulation::fwhFormulation(const FfowcsWilliamsHawkin
 :
     fwh_(fwh),
     fwhProbeI_(0),
+    dumpProbeI_(0),
     qds_(0),
     fds_(0),
     intDotQdS_(0.0, fwh_.obr_.time().value()),
@@ -16,8 +17,7 @@ Foam::functionObjects::fwhFormulation::fwhFormulation(const FfowcsWilliamsHawkin
     nl_(0),
     rMax_(0),
     tauMax_(0),
-    tauMin_(0),
-    operRegime_(Regime::PROCESSING)
+    tauMin_(0)
 {
     this->initialize();
 }
@@ -47,6 +47,14 @@ void Foam::functionObjects::fwhFormulation::initialize()
         {
             tobs_[iObs][iSurf].resize(fwh_.controlSurfaces_[iSurf].Cf().size(), 0.0);
         }
+    }
+
+    //allocate probe counters data dumping
+    dumpProbeI_.resize(fwh_.observers_.size());
+    forAll(fwh_.observers_, iObs)
+    {
+        dumpProbeI_[iObs].resize(fwh_.controlSurfaces_.size());
+        dumpProbeI_[iObs] = 0;
     }
     
     tauMax_.resize(fwh_.observers_.size(), 0.0);
@@ -148,18 +156,10 @@ void Foam::functionObjects::fwhFormulation::initialize()
     }
 
     // initialize dat files
-
-    if (fwh_.foundProperty("dumpToFile"))
+    qdsName_ = "qds.dat"; // fwh_.propertyDict().lookupOrDefault("qdsName", "qds.dat");
+    fdsName_ = "fds.dat"; // fwh_.propertyDict().lookupOrDefault("fdsName", "fds.dat");
+    if (fwh_.operRegime_ == FfowcsWilliamsHawkings::DUMP_DATA)
     {
-        if (fwh_.getProperty<bool>("dumpToFile"))
-        {
-            operRegime_ = Regime::DUMP_DATA;
-        }
-    }
-    if (operRegime_ == DUMP_DATA)
-    {
-        qdsName_ = "qds.dat"; // fwh_.propertyDict().lookupOrDefault("qdsName", "qds.dat");
-        fdsName_ = "fds.dat"; // fwh_.propertyDict().lookupOrDefault("fdsName", "fds.dat");
         // fwh_.getProperty()
         // fwh_.foundProperty()
         qdsDat_.reset(new OFstream(qdsName_));
@@ -197,136 +197,129 @@ Foam::functionObjects::fwhFormulation::~fwhFormulation()
 
 void Foam::functionObjects::fwhFormulation::clearExpiredData()
 {
-    if (operRegime_ == DUMP_DATA)
+    if (fwh_.operRegime_ == FfowcsWilliamsHawkings::DUMP_DATA)
     {
         return;
     }
 
     scalar ct   = fwh_.obr_.time().value();// - fwh_.obr_.time().deltaT().value()*1.0e-6;
     reduce(ct, minOp<scalar>());
-    
-    fwhProbeI_++;
-    if ( mag(fwhProbeI_ % fwh_.cleanFreq_) > VSMALL  )
+
+    if (fwh_.cleanFreq_ > ++fwhProbeI_)
     {
-        
+        return;
     }
-    else
+
+    fwhProbeI_ = 0;
+    scalar expiredTime = 0.0;
+    label  expiredIndex= -1;
+
+    forAllFaces(qds_, iObs, iSurf, iFace)
     {
-        fwhProbeI_ = 0;
-        scalar expiredTime = 0.0;
-        label  expiredIndex= -1;
-
-        forAllFaces(qds_, iObs, iSurf, iFace)
+        if (tauMin_.size())
         {
-            if (tauMin_.size())
-            {
-                expiredTime = ct - (tauMax_[iObs] - tauMin_[iObs] + fwh_.responseDelay_);
-            }
-            else
-            {
-                expiredTime = ct - tauMax_[iObs];
-            }
-            const pointTimeData& qdsOldPointData = qds_[iObs][iSurf][iFace];
-            expiredIndex= findExpiredIndex(qdsOldPointData, expiredTime);
-            // -1 - if nothing found, from 0 to (size-1) for indices to remove
-            if (expiredIndex > -1)
-            {
-                qds_[iObs][iSurf][iFace].operator=(getNewPointData(qds_[iObs][iSurf][iFace], expiredIndex));
-                fds_[iObs][iSurf][iFace].operator=(getNewPointData(fds_[iObs][iSurf][iFace], expiredIndex));
-            }
+            expiredTime = ct - (tauMax_[iObs] - tauMin_[iObs] + fwh_.responseDelay_);
         }
-
-
-        forAllFaces(qds_, iObs, iSurf, iFace)
+        else
         {
-            if (tauMin_.size())
-            {
-                expiredTime = ct - (tauMax_[iObs] - tauMin_[iObs] + fwh_.responseDelay_);
-            }
-            else
-            {
-                expiredTime = ct - tauMax_[iObs];
-            }
-            const pointTimeData& qdsOldPointData = qds_[iObs][iSurf][iFace];
-            expiredIndex= findExpiredIndex(qdsOldPointData, expiredTime);
-            // -1 - if nothing found, from 0 to (size-1) for indices to remove
-            if (expiredIndex > -1)
-            {
-                qds_[iObs][iSurf][iFace].operator=
-                    (
-                        getNewPointData(qds_[iObs][iSurf][iFace], expiredIndex)
-                    );
-                fds_[iObs][iSurf][iFace].operator=
-                    (
-                        getNewPointData(fds_[iObs][iSurf][iFace], expiredIndex)
-                    );
-            }
+            expiredTime = ct - tauMax_[iObs];
+        }
+        const pointTimeData& qdsOldPointData = qds_[iObs][iSurf][iFace];
+        expiredIndex= findExpiredIndex(qdsOldPointData, expiredTime);
+        // -1 - if nothing was found, from 0 to (size-1) for indices to remove
+        if (expiredIndex > -1)
+        {
+            qds_[iObs][iSurf][iFace].operator=
+                (
+                    getNewPointData(qds_[iObs][iSurf][iFace], expiredIndex)
+                );
+            fds_[iObs][iSurf][iFace].operator=
+                (
+                    getNewPointData(fds_[iObs][iSurf][iFace], expiredIndex)
+                );
         }
     }
 }
 
-void Foam::functionObjects::fwhFormulation::dumpAcousticData()
+void Foam::functionObjects::fwhFormulation::dumpAcousticData
+(
+    label iObs,
+    label iSurf
+)
 {
+    if (fwh_.cleanFreq_ > ++dumpProbeI_[iObs][iSurf])
+    {
+        return;
+    }
+    dumpProbeI_[iObs][iSurf] = 0;
+
     if (qds_.size() == 0 ||
-        qds_[0].size() == 0 ||
-        qds_[0][0].size() == 0 ||
-        qds_[0][0][0].first().size() == 0)
+        qds_[iObs].size() == 0 ||
+        qds_[iObs][iSurf].size() == 0 ||
+        qds_[iObs][iSurf][0].first().size() == 0)
     {
         return;
     }
 
     if (fds_.size() == 0 ||
-        fds_[0].size() == 0 ||
-        fds_[0][0].size() == 0 ||
-        fds_[0][0][0].first().size() == 0)
+        fds_[iObs].size() == 0 ||
+        fds_[iObs][iSurf].size() == 0 ||
+        fds_[iObs][iSurf][0].first().size() == 0)
     {
         return;
     }
 
-    forAll(qds_[0][0][0].first(), iTime)
+    Info<< "iObs = " << iObs
+        << ", nTimes = " << qds_[iObs][iSurf][0].first().size()
+        << endl;
+
+    forAll(qds_[iObs][iSurf][0].first(), iTime)
     {
-        forAllSurfaces(qds_, iObs, iSurf)
+        // maybe it's better to use higher level functions
+        List<scalar> tobs_buffer(qds_[iObs][iSurf].size(), 0.0);
+        List<scalar> xds_buffer(qds_[iObs][iSurf].size(), 0.0);
+
+        forAll(qds_[iObs][iSurf], iFace)
         {
-            // maybe it's better to use higher level functions
-            List<scalar> tobs_buffer(qds_[iObs][iSurf].size(), 0.0);
-            List<scalar> xds_buffer(qds_[iObs][iSurf].size(), 0.0);
-
-            forAll(qds_[iObs][iSurf], iFace)
-            {
-                tobs_buffer[iFace] = qds_[iObs][iSurf][iFace].first()[iTime];
-                xds_buffer[iFace] = qds_[iObs][iSurf][iFace].second()[iTime];
-            }
-            qds_out(iObs, iSurf).writeRaw
-            (
-                reinterpret_cast<const char*>(tobs_buffer.cdata()),
-                tobs_buffer.size()*sizeof(scalar)
-            );
-            qds_out(iObs, iSurf).writeRaw
-            (
-                reinterpret_cast<const char*>(xds_buffer.cdata()),
-                xds_buffer.size()*sizeof(scalar)
-            );
-
-            forAll(fds_[iObs][iSurf], iFace)
-            {
-                tobs_buffer[iFace] = fds_[iObs][iSurf][iFace].first()[iTime];
-                xds_buffer[iFace] = fds_[iObs][iSurf][iFace].second()[iTime];
-            }
-            fds_out(iObs, iSurf).writeRaw
-            (
-                reinterpret_cast<const char*>(tobs_buffer.cdata()),
-                tobs_buffer.size()*sizeof(scalar)
-            );
-            fds_out(iObs, iSurf).writeRaw
-            (
-                reinterpret_cast<const char*>(xds_buffer.cdata()),
-                xds_buffer.size()*sizeof(scalar)
-            );
+            tobs_buffer[iFace] = qds_[iObs][iSurf][iFace].first()[iTime];
+            xds_buffer[iFace] = qds_[iObs][iSurf][iFace].second()[iTime];
         }
+        Info<<"tobs = " << tobs_buffer << endl;
+        qds_out(iObs, iSurf).writeRaw
+        (
+            reinterpret_cast<const char*>(tobs_buffer.cdata()),
+            tobs_buffer.size()*sizeof(scalar)
+        );
+        qds_out(iObs, iSurf).writeRaw
+        (
+            reinterpret_cast<const char*>(xds_buffer.cdata()),
+            xds_buffer.size()*sizeof(scalar)
+        );
+
+        forAll(fds_[iObs][iSurf], iFace)
+        {
+            tobs_buffer[iFace] = fds_[iObs][iSurf][iFace].first()[iTime];
+            xds_buffer[iFace] = fds_[iObs][iSurf][iFace].second()[iTime];
+        }
+        fds_out(iObs, iSurf).writeRaw
+        (
+            reinterpret_cast<const char*>(tobs_buffer.cdata()),
+            tobs_buffer.size()*sizeof(scalar)
+        );
+        fds_out(iObs, iSurf).writeRaw
+        (
+            reinterpret_cast<const char*>(xds_buffer.cdata()),
+            xds_buffer.size()*sizeof(scalar)
+        );
     }
 
-    qds_.clear();
-    fds_.clear();
+    forAll(qds_, iFace)
+    {
+            qds_[iObs][iSurf][iFace].first().clear();
+            qds_[iObs][iSurf][iFace].second().clear();
+            fds_[iObs][iSurf][iFace].first().clear();
+            fds_[iObs][iSurf][iFace].second().clear();
+    }
 }
 
 void Foam::functionObjects::fwhFormulation::update()
@@ -622,9 +615,9 @@ Foam::scalar Foam::functionObjects::fwhFormulation::observerAcousticPressure
 {
     calculateAcousticData(Sf,uS,rhoS,pS,iObs,iSurf,ct);
 
-    if (operRegime_ == DUMP_DATA)
+    if (fwh_.operRegime_ == FfowcsWilliamsHawkings::DUMP_DATA)
     {
-        dumpAcousticData();
+        dumpAcousticData(iObs,iSurf);
         return 0.0;
     }
 
